@@ -11,7 +11,7 @@ The pipeline leverages a modern data stack to guarantee scalability and idempote
 - **Data Warehousing (Gold Layer)**: Snowflake (`reconciliation_engine.sql`) ingests the Parquet files via an External Stage. It performs a highly-performant `FULL OUTER JOIN` to identify missing records and amount discrepancies, outputting to a `daily_reconciliation_breaks` table.
 - **Visualization & Resilience**: A Streamlit dashboard (`dashboard.py`) visualizes the discrepancies live from Snowflake. To guarantee uptime for reviewers (e.g., if Snowflake credentials expire), it features a built-in DuckDB fallback that seamlessly queries a locally exported `fallback_data.parquet` sample.
 
-## Getting Started (For Recruiters/Reviewers)
+## Getting Started 
 
 To run this environment locally, follow these steps:
 
