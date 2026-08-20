@@ -80,3 +80,93 @@ The pipeline transforms raw data into highly structured schemas:
 * `settled_amount`: The actual cash the gateway deposited into our bank account (excluding fees).
 * `fee`: The processing fee taken by the gateway.
 * `timestamp_utc`: When the cash was actually settled.
+
+
+```mermaid
+graph LR
+    subgraph Local Docker Environment
+        A[Data Generator] -->|Raw CSVs| B(Apache Airflow)
+        B -->|Triggers| C[PySpark Processor]
+    end
+
+    subgraph AWS Cloud
+        B -->|Uploads| D[(S3 Bronze Bucket)]
+        C -.Reads.-> D
+        C -->|Writes Parquet| E[(S3 Silver Bucket)]
+    end
+
+    subgraph Snowflake Data Warehouse
+        E -->|External Stage| F[Internal Orders Table]
+        E -->|External Stage| G[Gateway Settlements Table]
+        F --> H{Reconciliation Engine}
+        G --> H
+        H --> I[Reconciliation Breaks View]
+    end
+
+    subgraph Front-End
+        I -->|SQL Queries| J[Streamlit Community Cloud]
+        J -->|Visualizes| K((End User / Ops Team))
+    end
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#87CEFA,stroke:#333,stroke-width:2px
+    style C fill:#FFA500,stroke:#333,stroke-width:2px
+    style D fill:#FF9999,stroke:#333,stroke-width:2px
+    style E fill:#C0C0C0,stroke:#333,stroke-width:2px
+    style H fill:#98FB98,stroke:#333,stroke-width:2px
+    style J fill:#FF6347,stroke:#333,stroke-width:2px
+
+
+### 2. The ETL Pipeline Sequence
+*Paste this code block to show recruiters the exact sequence of data engineering events that Airflow orchestrates.*
+
+```markdown
+```mermaid
+sequenceDiagram
+    participant Airflow
+    participant Bronze as AWS S3 (Bronze)
+    participant Spark as PySpark
+    participant Silver as AWS S3 (Silver)
+    participant Snowflake
+
+    Airflow->>Bronze: 1. Upload raw internal & gateway CSVs
+    Airflow->>Spark: 2. Trigger spark_processor.py
+    Spark->>Bronze: 3. Read raw CSV data
+    Spark->>Spark: 4. Cleanse, cast types, enforce schema
+    Spark->>Silver: 5. Write highly-compressed Parquet files
+    Airflow->>Snowflake: 6. Trigger final SQL execution
+    Snowflake->>Silver: 7. Ingest Parquet via External Stage
+    Snowflake->>Snowflake: 8. Execute FULL OUTER JOIN & logic
+
+
+
+### 3. Entity Relationship Diagram (ERD)
+*Paste this code block to show the database schema and how the final reconciliation table is generated.*
+
+```markdown
+```mermaid
+erDiagram
+    INTERNAL_ORDERS {
+        VARCHAR order_id PK
+        VARCHAR user_id
+        NUMBER amount
+        TIMESTAMP timestamp_utc
+    }
+    GATEWAY_SETTLEMENTS {
+        VARCHAR settlement_id PK
+        VARCHAR order_id FK
+        NUMBER settled_amount
+        NUMBER fee
+        TIMESTAMP timestamp_utc
+    }
+    DAILY_RECONCILIATION_BREAKS {
+        VARCHAR order_id
+        NUMBER internal_amount
+        NUMBER gateway_amount
+        NUMBER gateway_fee
+        VARCHAR discrepancy_reason
+        TIMESTAMP reconciled_at
+    }
+
+    INTERNAL_ORDERS ||--o| DAILY_RECONCILIATION_BREAKS : "Joined on order_id"
+    GATEWAY_SETTLEMENTS ||--o| DAILY_RECONCILIATION_BREAKS : "Joined on order_id"
