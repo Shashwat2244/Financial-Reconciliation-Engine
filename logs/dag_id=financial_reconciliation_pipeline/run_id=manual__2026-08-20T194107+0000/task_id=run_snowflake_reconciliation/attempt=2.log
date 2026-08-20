@@ -1,0 +1,195 @@
+[2026-08-20T19:47:18.194+0000] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2026-08-20T19:47:18.203+0000] {taskinstance.py:2613} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: financial_reconciliation_pipeline.run_snowflake_reconciliation manual__2026-08-20T19:41:07+00:00 [queued]>
+[2026-08-20T19:47:18.208+0000] {taskinstance.py:2613} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: financial_reconciliation_pipeline.run_snowflake_reconciliation manual__2026-08-20T19:41:07+00:00 [queued]>
+[2026-08-20T19:47:18.210+0000] {taskinstance.py:2866} INFO - Starting attempt 2 of 2
+[2026-08-20T19:47:18.217+0000] {taskinstance.py:2889} INFO - Executing <Task(SnowflakeOperator): run_snowflake_reconciliation> on 2026-08-20 19:41:07+00:00
+[2026-08-20T19:47:18.223+0000] {standard_task_runner.py:72} INFO - Started process 1097 to run task
+[2026-08-20T19:47:18.226+0000] {standard_task_runner.py:104} INFO - Running: ['***', 'tasks', 'run', 'financial_reconciliation_pipeline', 'run_snowflake_reconciliation', 'manual__2026-08-20T19:41:07+00:00', '--job-id', '11', '--raw', '--subdir', 'DAGS_FOLDER/reconciliation_dag.py', '--cfg-path', '/tmp/tmp3_ogld8h']
+[2026-08-20T19:47:18.229+0000] {standard_task_runner.py:105} INFO - Job 11: Subtask run_snowflake_reconciliation
+[2026-08-20T19:47:18.242+0000] {logging_mixin.py:190} WARNING - /home/***/.local/lib/python3.10/site-packages/***/settings.py:209 DeprecationWarning: The sql_alchemy_conn option in [core] has been moved to the sql_alchemy_conn option in [database] - the old setting has been used, but please update your config.
+[2026-08-20T19:47:18.263+0000] {task_command.py:467} INFO - Running <TaskInstance: financial_reconciliation_pipeline.run_snowflake_reconciliation manual__2026-08-20T19:41:07+00:00 [running]> on host ab27d702166c
+[2026-08-20T19:47:18.301+0000] {taskinstance.py:3132} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='***' AIRFLOW_CTX_DAG_ID='financial_reconciliation_pipeline' AIRFLOW_CTX_TASK_ID='run_snowflake_reconciliation' AIRFLOW_CTX_EXECUTION_DATE='2026-08-20T19:41:07+00:00' AIRFLOW_CTX_TRY_NUMBER='2' AIRFLOW_CTX_DAG_RUN_ID='manual__2026-08-20T19:41:07+00:00'
+[2026-08-20T19:47:18.303+0000] {taskinstance.py:731} INFO - ::endgroup::
+[2026-08-20T19:47:18.310+0000] {sql.py:278} INFO - Executing: USE DATABASE FINANCE_DB;
+USE SCHEMA RECONCILIATION_SCHEMA;
+USE WAREHOUSE COMPUTE_WH;
+
+-- Create Storage Integration (mocked)
+CREATE OR REPLACE STORAGE INTEGRATION s3_int
+  TYPE = EXTERNAL_STAGE
+  STORAGE_PROVIDER = 'S3'
+  ENABLED = TRUE
+  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::001234567890:role/myrole'
+  STORAGE_ALLOWED_LOCATIONS = ('s3://s3-fintech-recon-silver-ss/');
+
+-- Create External Stage
+CREATE OR REPLACE STAGE silver_stage
+  URL = 's3://s3-fintech-recon-silver-ss/'
+  STORAGE_INTEGRATION = s3_int
+  FILE_FORMAT = (TYPE = PARQUET);
+
+-- Create Tables from Parquet
+CREATE OR REPLACE TABLE internal_orders AS
+SELECT 
+  $1:order_id::VARCHAR AS order_id,
+  $1:user_id::VARCHAR AS user_id,
+  $1:amount::NUMBER(10,2) AS amount,
+  $1:timestamp_utc::TIMESTAMP AS timestamp_utc
+FROM @silver_stage/silver_orders.parquet;
+
+CREATE OR REPLACE TABLE gateway_settlements AS
+SELECT 
+  $1:settlement_id::VARCHAR AS settlement_id,
+  $1:order_id::VARCHAR AS order_id,
+  $1:settled_amount::NUMBER(10,2) AS settled_amount,
+  $1:fee::NUMBER(10,2) AS fee,
+  $1:timestamp_utc::TIMESTAMP AS timestamp_utc
+FROM @silver_stage/silver_settlements.parquet;
+
+-- Core Reconciliation Logic
+CREATE OR REPLACE TABLE daily_reconciliation_breaks AS
+SELECT 
+    COALESCE(o.order_id, s.order_id) AS order_id,
+    o.amount AS internal_amount,
+    s.settled_amount AS gateway_amount,
+    s.fee AS gateway_fee,
+    CASE
+        WHEN o.order_id IS NULL THEN 'Missing in Internal'
+        WHEN s.order_id IS NULL THEN 'Missing in Gateway'
+        WHEN o.amount != s.settled_amount THEN 'Amount Mismatch'
+        ELSE 'Other Discrepancy'
+    END as discrepancy_reason,
+    CURRENT_TIMESTAMP() AS reconciled_at
+FROM internal_orders o
+FULL OUTER JOIN gateway_settlements s ON o.order_id = s.order_id
+WHERE 
+    o.order_id IS NULL 
+    OR s.order_id IS NULL 
+    OR o.amount != s.settled_amount;
+[2026-08-20T19:47:18.317+0000] {logging_mixin.py:190} WARNING - /home/***/.local/lib/python3.10/site-packages/***/models/connection.py:372 RemovedInAirflow3Warning: Encountered non-JSON in `extra` field for connection 'snowflake_default'. Support for non-JSON `extra` will be removed in Airflow 3.0
+[2026-08-20T19:47:18.318+0000] {connection.py:495} ERROR - Failed parsing the json for conn_id snowflake_default
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/connection.py", line 493, in get_extra_dejson
+    extra = json.loads(self.extra)
+  File "/usr/local/lib/python3.10/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/usr/local/lib/python3.10/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/usr/local/lib/python3.10/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+[2026-08-20T19:47:18.319+0000] {base.py:84} INFO - Retrieving connection 'snowflake_default'
+[2026-08-20T19:47:18.352+0000] {connection.py:495} ERROR - Failed parsing the json for conn_id snowflake_default
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/connection.py", line 493, in get_extra_dejson
+    extra = json.loads(self.extra)
+  File "/usr/local/lib/python3.10/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/usr/local/lib/python3.10/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/usr/local/lib/python3.10/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+[2026-08-20T19:47:18.354+0000] {base.py:84} INFO - Retrieving connection 'snowflake_default'
+[2026-08-20T19:47:18.355+0000] {connection.py:495} ERROR - Failed parsing the json for conn_id snowflake_default
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/connection.py", line 493, in get_extra_dejson
+    extra = json.loads(self.extra)
+  File "/usr/local/lib/python3.10/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/usr/local/lib/python3.10/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/usr/local/lib/python3.10/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+[2026-08-20T19:47:18.356+0000] {connection.py:424} INFO - Snowflake Connector for Python Version: 3.13.2, Python Version: 3.10.16, Platform: Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36
+[2026-08-20T19:47:18.358+0000] {connection.py:1213} INFO - Connecting to GLOBAL Snowflake domain
+[2026-08-20T19:47:18.360+0000] {taskinstance.py:3311} ERROR - Task failed with exception
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 767, in _execute_task
+    result = _execute_callable(context=context, **execute_callable_kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 733, in _execute_callable
+    return ExecutionCallableRunner(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/utils/operator_helpers.py", line 252, in run
+    return self.func(*args, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/baseoperator.py", line 422, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/providers/common/sql/operators/sql.py", line 284, in execute
+    output = hook.run(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/providers/snowflake/hooks/snowflake.py", line 429, in run
+    with closing(self.get_conn()) as conn:
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/providers/snowflake/hooks/snowflake.py", line 303, in get_conn
+    conn = connector.connect(**conn_config)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/__init__.py", line 55, in Connect
+    return SnowflakeConnection(**kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/connection.py", line 467, in __init__
+    self.connect(**kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/connection.py", line 747, in connect
+    self.__config(**kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/connection.py", line 1272, in __config
+    Error.errorhandler_wrapper(
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/errors.py", line 283, in errorhandler_wrapper
+    handed_over = Error.hand_to_other_handler(
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/errors.py", line 341, in hand_to_other_handler
+    connection.errorhandler(connection, cursor, error_class, error_value)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/errors.py", line 214, in default_errorhandler
+    raise error_class(
+snowflake.connector.errors.ProgrammingError: 251001: 251001: Account must be specified
+[2026-08-20T19:47:18.364+0000] {taskinstance.py:1225} INFO - Marking task as FAILED. dag_id=financial_reconciliation_pipeline, task_id=run_snowflake_reconciliation, run_id=manual__2026-08-20T19:41:07+00:00, execution_date=20260820T194107, start_date=20260820T194718, end_date=20260820T194718
+[2026-08-20T19:47:18.371+0000] {taskinstance.py:340} INFO - ::group::Post task execution logs
+[2026-08-20T19:47:18.373+0000] {standard_task_runner.py:124} ERROR - Failed to execute job 11 for task run_snowflake_reconciliation (251001: 251001: Account must be specified; 1097)
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/task/task_runner/standard_task_runner.py", line 117, in _start_by_fork
+    ret = args.func(args, dag=self.dag)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/cli/cli_config.py", line 49, in command
+    return func(*args, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/utils/cli.py", line 116, in wrapper
+    return f(*args, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/cli/commands/task_command.py", line 483, in task_run
+    task_return_code = _run_task_by_selected_method(args, _dag, ti)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/cli/commands/task_command.py", line 256, in _run_task_by_selected_method
+    return _run_raw_task(args, ti)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/cli/commands/task_command.py", line 341, in _run_raw_task
+    return ti._run_raw_task(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/utils/session.py", line 97, in wrapper
+    return func(*args, session=session, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 3005, in _run_raw_task
+    return _run_raw_task(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 273, in _run_raw_task
+    TaskInstance._execute_task_with_callbacks(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 3159, in _execute_task_with_callbacks
+    result = self._execute_task(context, task_orig)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 3183, in _execute_task
+    return _execute_task(self, context, task_orig)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 767, in _execute_task
+    result = _execute_callable(context=context, **execute_callable_kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/taskinstance.py", line 733, in _execute_callable
+    return ExecutionCallableRunner(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/utils/operator_helpers.py", line 252, in run
+    return self.func(*args, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/models/baseoperator.py", line 422, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/providers/common/sql/operators/sql.py", line 284, in execute
+    output = hook.run(
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/providers/snowflake/hooks/snowflake.py", line 429, in run
+    with closing(self.get_conn()) as conn:
+  File "/home/airflow/.local/lib/python3.10/site-packages/airflow/providers/snowflake/hooks/snowflake.py", line 303, in get_conn
+    conn = connector.connect(**conn_config)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/__init__.py", line 55, in Connect
+    return SnowflakeConnection(**kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/connection.py", line 467, in __init__
+    self.connect(**kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/connection.py", line 747, in connect
+    self.__config(**kwargs)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/connection.py", line 1272, in __config
+    Error.errorhandler_wrapper(
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/errors.py", line 283, in errorhandler_wrapper
+    handed_over = Error.hand_to_other_handler(
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/errors.py", line 341, in hand_to_other_handler
+    connection.errorhandler(connection, cursor, error_class, error_value)
+  File "/home/airflow/.local/lib/python3.10/site-packages/snowflake/connector/errors.py", line 214, in default_errorhandler
+    raise error_class(
+snowflake.connector.errors.ProgrammingError: 251001: 251001: Account must be specified
+[2026-08-20T19:47:18.401+0000] {local_task_job_runner.py:266} INFO - Task exited with return code 1
+[2026-08-20T19:47:18.412+0000] {taskinstance.py:3895} INFO - 0 downstream tasks scheduled from follow-on schedule check
+[2026-08-20T19:47:18.416+0000] {local_task_job_runner.py:245} INFO - ::endgroup::
