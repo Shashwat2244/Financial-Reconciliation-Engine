@@ -53,3 +53,30 @@ python -m venv venv
 pip install -r requirements.txt
 pytest tests/test_pipeline.py
 ```
+
+## 🗄️ Data Flow & Analysis
+1. **Ingestion (Bronze Layer):** We feed the pipeline two distinct, high-volume financial data streams:
+   - **Internal Ledgers:** The company's internal record of sales.
+   - **External Gateway Reports:** End-of-day settlement reports from third-party payment processors (Stripe, PayPal, Adyen).
+2. **Transformation (Silver Layer):** Airflow triggers a PySpark job that cleans the raw CSVs, enforces schemas, and writes highly compressed Parquet files to an AWS S3 data lake.
+3. **Warehouse Loading & Reconciliation:** Snowflake ingests the Parquet files via an External Stage. A massive `FULL OUTER JOIN` is performed on the `order_id` between the internal ledger and gateway settlements. Conditional SQL logic (`CASE WHEN`) is applied to isolate and categorize transactions that don't perfectly match.
+4. **Visualization:** A Streamlit dashboard queries the Snowflake warehouse in real-time to visualize the reconciliation breaks.
+## 📊 Business Metrics Tracked
+By running this analysis, the dashboard provides Finance and Operations teams with four critical business metrics:
+* **Revenue Leakage (`Missing in Gateway`):** Identifies orders where a product/service was provided to a customer, but the payment gateway never actually sent the funds.
+* **Orphaned Payments (`Missing in Internal`):** Identifies money deposited into the account that doesn't match any internal sale (which causes severe accounting and tax issues).
+* **Financial Slippage (`Amount Mismatch`):** Flags transactions where the customer was charged $50, but the gateway only settled $48. This highlights currency conversion bugs, system rounding errors, or partial refunds.
+* **Fee Transparency:** Tracks exactly how much the business is losing to payment processing fees.
+## 📖 Data Dictionary
+The pipeline transforms raw data into highly structured schemas:
+**Internal Orders (Our System)**
+* `order_id`: Unique identifier for the customer's purchase.
+* `user_id`: The customer's account ID.
+* `amount`: The amount the customer was charged on our platform.
+* `timestamp_utc`: When the order was placed.
+**Gateway Settlements (Third-Party Processor)**
+* `settlement_id`: The payment gateway's internal transaction ID.
+* `order_id`: The foreign key linking back to our internal order.
+* `settled_amount`: The actual cash the gateway deposited into our bank account (excluding fees).
+* `fee`: The processing fee taken by the gateway.
+* `timestamp_utc`: When the cash was actually settled.
