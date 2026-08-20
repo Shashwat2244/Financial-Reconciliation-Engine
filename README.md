@@ -82,7 +82,7 @@ The pipeline transforms raw data into highly structured schemas:
 * `timestamp_utc`: When the cash was actually settled.
 
 
-### 1. High-Level Architecture Flow
+### High-Level Architecture Flow
 
 ```mermaid
 graph LR
