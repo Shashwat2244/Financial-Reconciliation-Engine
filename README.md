@@ -82,6 +82,8 @@ The pipeline transforms raw data into highly structured schemas:
 * `timestamp_utc`: When the cash was actually settled.
 
 
+### 1. High-Level Architecture Flow
+
 ```mermaid
 graph LR
     subgraph Local Docker Environment
@@ -115,58 +117,10 @@ graph LR
     style E fill:#C0C0C0,stroke:#333,stroke-width:2px
     style H fill:#98FB98,stroke:#333,stroke-width:2px
     style J fill:#FF6347,stroke:#333,stroke-width:2px
+```
+### ETL Pipeline Sequence
+<img width="1822" height="948" alt="image" src="https://github.com/user-attachments/assets/2336ab56-65cc-49a1-a9c6-a16466507e80" />
 
+### ER Diagram
+<img width="1615" height="811" alt="image" src="https://github.com/user-attachments/assets/52f74692-b6ac-4fd1-b415-edee493d454a" />
 
-### 2. The ETL Pipeline Sequence
-*Paste this code block to show recruiters the exact sequence of data engineering events that Airflow orchestrates.*
-
-```markdown
-```mermaid
-sequenceDiagram
-    participant Airflow
-    participant Bronze as AWS S3 (Bronze)
-    participant Spark as PySpark
-    participant Silver as AWS S3 (Silver)
-    participant Snowflake
-
-    Airflow->>Bronze: 1. Upload raw internal & gateway CSVs
-    Airflow->>Spark: 2. Trigger spark_processor.py
-    Spark->>Bronze: 3. Read raw CSV data
-    Spark->>Spark: 4. Cleanse, cast types, enforce schema
-    Spark->>Silver: 5. Write highly-compressed Parquet files
-    Airflow->>Snowflake: 6. Trigger final SQL execution
-    Snowflake->>Silver: 7. Ingest Parquet via External Stage
-    Snowflake->>Snowflake: 8. Execute FULL OUTER JOIN & logic
-
-
-
-### 3. Entity Relationship Diagram (ERD)
-*Paste this code block to show the database schema and how the final reconciliation table is generated.*
-
-```markdown
-```mermaid
-erDiagram
-    INTERNAL_ORDERS {
-        VARCHAR order_id PK
-        VARCHAR user_id
-        NUMBER amount
-        TIMESTAMP timestamp_utc
-    }
-    GATEWAY_SETTLEMENTS {
-        VARCHAR settlement_id PK
-        VARCHAR order_id FK
-        NUMBER settled_amount
-        NUMBER fee
-        TIMESTAMP timestamp_utc
-    }
-    DAILY_RECONCILIATION_BREAKS {
-        VARCHAR order_id
-        NUMBER internal_amount
-        NUMBER gateway_amount
-        NUMBER gateway_fee
-        VARCHAR discrepancy_reason
-        TIMESTAMP reconciled_at
-    }
-
-    INTERNAL_ORDERS ||--o| DAILY_RECONCILIATION_BREAKS : "Joined on order_id"
-    GATEWAY_SETTLEMENTS ||--o| DAILY_RECONCILIATION_BREAKS : "Joined on order_id"
